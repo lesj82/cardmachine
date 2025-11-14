@@ -10,9 +10,9 @@ const isPDF = (b: Uint8Array) =>
   b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46;
 
 async function pdfTextFromBytes(bytes: Uint8Array): Promise<string> {
-  const pdf = await getDocumentProxy(bytes);          // load PDF[web:29]
+  const pdf = await getDocumentProxy(bytes);          
   const { text } = await unpdfExtractText(pdf, {
-    mergePages: true,                                 // single big string[web:29]
+    mergePages: true,                                 
   });
   return text;
 }
