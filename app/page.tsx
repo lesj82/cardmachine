@@ -76,7 +76,7 @@ export default function Page() {
             <img src="/logo-cmq1.png" alt="CardMachineQuote.com" className="h-12 w-auto object-contain" />
             <span className="sr-only">CardMachineQuote.com</span>
           </div>
-          <a href="#upload" className="text-white rounded-lg px-4 py-2 text-sm font-medium" style={{ backgroundColor: brandBlue }}>Get a Quote</a>
+          {/* <a href="#upload" className="text-white rounded-lg px-4 py-2 text-sm font-medium" style={{ backgroundColor: brandBlue }}>Get a Quote</a> */}
         </div>
       </header>
 

@@ -15,18 +15,18 @@ export default function ResultsPanel({ data }: { data: any }) {
   const annualSaving = q.annualSaving ?? monthlySaving * 12
 
   return (
-    <div className="max-w-3xl mx-auto bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+    <div className="max-w-3xl mx-auto bg-[#5170ff10] border border-gray-200 rounded-2xl p-6 shadow-sm">
       <h3 className="text-xl font-semibold text-gray-900">Estimated savings</h3>
       <p className="mt-1 text-sm text-gray-600">
         Based on the statement you uploaded and CardMachineQuote.com standard rates.
       </p>
       <dl className="mt-4 space-y-1 text-sm text-gray-800">
         <div className="flex justify-between">
-          <dt className="font-medium">Monthly cost with current provider</dt>
+          <dt className="font-medium">Current monthly cost</dt>
           <dd>£{current.toFixed(2)}</dd>
         </div>
         <div className="flex justify-between">
-          <dt className="font-medium">Monthly with CardMachineQuote.com</dt>
+          <dt className="font-medium">New monthly cost</dt>
           <dd>£{cmq.toFixed(2)}</dd>
         </div>
         <div className="flex justify-between text-green-700">
