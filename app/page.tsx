@@ -154,20 +154,28 @@ export default function Page() {
         </div>
       </section>
 
+      {/* --- START MODIFICATION --- */}
       <footer className="border-t">
-        <div className="max-w-6xl mx-auto px-6 py-8 text-sm text-gray-600 flex items-center gap-3">
-          <img src="/logo-cmq.png" alt="CardMachineQuote.com" className="h-6 w-auto object-contain" />
-          <span>© {new Date().getFullYear()} CardMachineQuote.com</span>
+        {/* Main flex container: stacks on mobile, row on desktop */}
+        <div className="max-w-6xl mx-auto px-6 py-8 text-sm text-gray-600 flex flex-col items-center gap-4 md:flex-row">
           
-          {/* --- START MODIFICATION --- */}
-          <div className="ml-auto flex gap-4">
+          {/* Group 1: Logo + Copyright */}
+          {/* Stacks on mobile, row on desktop */}
+          <div className="flex flex-col items-center gap-2 md:flex-row md:gap-3">
+            <img src="/logo-cmq1.png" alt="CardMachineQuote.com" className="h-6 w-auto object-contain" />
+            <span>© {new Date().getFullYear()} CardMachineQuote.com</span>
+          </div>
+          
+          {/* Group 2: Links */}
+          {/* Stacks on mobile, row on desktop. Pushes to the right ONLY on desktop */}
+          <div className="flex flex-col items-center gap-2 md:flex-row md:ml-auto md:gap-4">
             <a href="/privacy" className="hover:underline">Privacy Policy</a>
             <a href="/terms" className="hover:underline">Terms & Conditions</a>
           </div>
-          {/* --- END MODIFICATION --- */}
 
         </div>
       </footer>
+      {/* --- END MODIFICATION --- */}
     </main>
   )
 }
