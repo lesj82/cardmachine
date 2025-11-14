@@ -18,9 +18,30 @@ export default function Page() {
     setLoading(true)
     setSentOk(null)
     setError('')
+    setData(null) // Clear previous data
     const form = new FormData(); form.append('file', f)
-    const res = await fetch('/api/analyse', { method: 'POST', body: form })
-    const json = await res.json(); setData(json); setLoading(false)
+
+    // --- START MODIFICATION ---
+    try {
+      const res = await fetch('/api/analyse', { method: 'POST', body: form })
+      const json = await res.json()
+      
+      if (!res.ok) {
+        // If API returned an error (like 400), set the error state
+        throw new Error(json.error || 'Failed to analyse file.')
+      }
+      
+      // Only set data if res.ok is true
+      setData(json)
+
+    } catch (e:any) {
+      // Catch network errors or the error thrown above
+      setError(e?.message || 'Unexpected error during analysis.')
+      setData(null) // Ensure data is null on error
+    } finally {
+      setLoading(false)
+    }
+    // --- END MODIFICATION ---
   }
 
   async function emailQuote() {
@@ -79,6 +100,9 @@ export default function Page() {
               <p className="text-sm text-gray-600 mb-4">PDF, JPG, or PNG. We’ll never share your data. Delete anytime.</p>
               <UploadDropzone onFile={handleFile} />
               {loading && <div className="mt-3 text-sm">Analyzing…</div>}
+              {/* --- ADD THIS LINE --- */}
+              {error && !loading && <div className="mt-3 text-sm text-red-600">{error}</div>}
+              {/* --- END ADDITION --- */}
             </div>
           </div>
         </div>
