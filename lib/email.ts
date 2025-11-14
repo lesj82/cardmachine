@@ -12,7 +12,7 @@ export async function sendEmail(args: SendArgs) {
   const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env
   if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) {
     throw new Error('SMTP credentials missing: set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and optional SMTP_FROM')
-  }
+  } 
 
   const transporter = nodemailer.createTransport({
     host: SMTP_HOST,
