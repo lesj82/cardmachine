@@ -71,9 +71,9 @@ export default function Page() {
   return (
     <main className="min-h-screen bg-white text-gray-900 font-sans">
       <header className="border-b bg-white/80 backdrop-blur sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto flex justify-between items-center px-6 py-4">
+        <div className="max-w-6xl mx-auto flex justify-center md:justify-between items-center px-6 py-4">
           <div className="flex items-center gap-3">
-            <img src="/logo-cmq1.png" alt="CardMachineQuote.com" className="h-12 w-auto object-contain" />
+            <img src="/logo-cmq1.png" alt="CardMachineQuote.com" className="h-14 w-auto object-contain" />
             <span className="sr-only">CardMachineQuote.com</span>
           </div>
           {/* <a href="#upload" className="text-white rounded-lg px-4 py-2 text-sm font-medium" style={{ backgroundColor: brandBlue }}>Get a Quote</a> */}
