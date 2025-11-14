@@ -161,8 +161,8 @@ export default function Page() {
           
           {/* --- START MODIFICATION --- */}
           <div className="ml-auto flex gap-4">
-            <a href="/CardMachineQuote_PrivacyPolicy.pdf" className="hover:underline">Privacy Policy</a>
-            <a href="/CardMachineQuote_TermsAndConditions.pdf" className="hover:underline">Terms & Conditions</a>
+            <a href="/privacy" className="hover:underline">Privacy Policy</a>
+            <a href="/terms" className="hover:underline">Terms & Conditions</a>
           </div>
           {/* --- END MODIFICATION --- */}
 
