@@ -1,141 +1,238 @@
-import Tesseract from 'tesseract.js';
-import { extractText as unpdfExtractText, getDocumentProxy } from 'unpdf';
+// lib/parsers/generic.ts
+import { extractPdfTextFromBytes } from "./pdfText";
 
-const money = (s: string) => {
-  const m = s.replace(/[,£]/g, '').match(/(-?\d+(?:\.\d{1,2})?)/);
-  return m ? parseFloat(m[1]) : 0; // Default to 0 instead of null
-};
+function clean(s: string) {
+  return s.replace(/[,£$€¥₹]/g, "").trim(); // Expanded to remove more currency symbols
+}
 
-const isPDF = (b: Uint8Array) =>
-  b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46;
-
-async function pdfTextFromBytes(bytes: Uint8Array): Promise<string> {
-  const pdf = await getDocumentProxy(bytes);          // load PDF[web:29]
-  const { text } = await unpdfExtractText(pdf, {
-    mergePages: true,                                 // single big string[web:29]
-  });
-  return text;
+function findMoneyInText(text: string, re: RegExp) {
+  const m = text.match(re);
+  if (!m) return null;
+  return parseFloat(clean(m[1]));
 }
 
 export async function extractGeneric(file: Blob) {
   const bytes = new Uint8Array(await file.arrayBuffer());
-  let text = '';
+  const mime = file.type || "application/pdf";
 
-  if (isPDF(bytes)) {
-    // use unpdf instead of pdf-parse
-    text = await pdfTextFromBytes(bytes);
-  } else {
-    const {
-      data: { text: t },
-    } = await Tesseract.recognize(Buffer.from(bytes), 'eng');
-    text = t;
-  }
+  let text = "";
 
-  // --- START MODIFICATION ---
-
-  let tx = 0;
-  let monthTurnover = 0;
-
-  // Strategy 1: Find the Dojo summary line
-  const dojoSummaryRegex = /(Subtotal|Total)[\s",]+(\d{2,8})[\s",]+([£]?[\d,]+\.\d{2})/i;
-  const dojoMatch = text.match(dojoSummaryRegex);
-
-  if (dojoMatch && dojoMatch[2] && dojoMatch[3]) {
-    tx = parseInt(dojoMatch[2].replace(/,/g, ''), 10) || 0;
-    monthTurnover = money(dojoMatch[3]);
-  } else {
-    // Strategy 2: If Strategy 1 failed, try other regexes
-    // ... (this logic remains the same) ...
-    for (const r of [
-      /(transactions|tx\s*count)[^\d]{0,10}(\d{2,8})/i,
-      /(Number\s+of\s+transactions)[\s",]+(\d{2,8})/i
-    ]) {
-      const m = text.match(r);
-      if (m && m[2]) {
-        tx = parseInt(m[2].replace(/,/g, ''), 10);
-        if (tx > 0) break;
-      }
-    }
-
-    for (const r of [
-      /(total\s+value\s+of\s+transactions)[^£\d]{0,30}([£]?[\d,]+(?:\.\d{1,2})?)/i,
-      /(total\s+turnover|gross\s+sales|total\s+card\s+sales)[^£\d]{0,30}([£]?[\d,]+(?:\.\d{1,2})?)/i,
-      /(processed\s+volume|total\s+volume)[^£\d]{0,30}([£]?[\d,]+(?:\.\d{1,2})?)/i,
-    ]) {
-      const m = text.match(r);
-      if (m) {
-        monthTurnover = money(m[2]);
-        if (monthTurnover > 0) break;
-      }
+  if (mime === "application/pdf") {
+    try {
+      text = await extractPdfTextFromBytes(bytes);
+    } catch (e) {
+      console.warn("Generic PDF parse failed:", e);
+      text = "";
     }
   }
-  
-  const labels = [
-    'terminal',
-    'pci',
-    'security',
-    'mmf',
-    'minimum monthly',
-    'monthly service',
-    'gateway',
-    'statement fee',
-    'chargeback',
-    'services for dojo go',
-    'Dojo Go',
-    'Hardware care',
-    'Platform',
-    'Card machine & account services'
-  ];
 
-  let fixed = 0;
-  for (const lab of labels) {
-    const m = new RegExp(
-      `${lab}[^£\\n]{0,40}([£]?[\\d,]+(?:\\.\\d{1,2})?)`,
-      'i'
-    ).exec(text);
-    if (m) fixed += money(m[1]); 
+  // If no text yet, try OCR via OpenAI image input (simple)
+  if (!text.trim()) {
+    try {
+      const base64 = Buffer.from(bytes).toString("base64");
+      const API_KEY = process.env.OPENAI_API_KEY;
+      if (!API_KEY) throw new Error("Missing OPENAI_API_KEY for OCR fallback");
+
+      const visionReq = await fetch(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: process.env.AI_MODEL || "gpt-4o-mini",
+            messages: [
+              {
+                role: "system",
+                content:
+                  "Extract plain text only from the supplied image. Return only the extracted text.",
+              },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "image_url",
+                    image_url: { url: `data:${mime};base64,${base64}` },
+                  },
+                ],
+              },
+            ],
+            max_tokens: 2500,
+          }),
+        }
+      );
+
+      const out = await visionReq.json();
+      text = out?.choices?.[0]?.message?.content || "";
+    } catch (e) {
+      console.warn("Generic OCR failed:", e);
+      text = "";
+    }
   }
 
-  const totalFeesMatch = text.match(
-    /(Net\s+amount)[^£\d]{0,20}([£]?[\d,]+(?:\.\d{1,2})?)/i
-  ) || text.match(
-    /(total\s+fees|fees\s+total|grand\s+total)[^£\d]{0,20}([£]?[\d,]+(?:\.\d{1,2})?)/i
-  );
-  const currentFeesMonthly = totalFeesMatch ? money(totalFeesMatch[2]) : null;
+  // -------------------------------------------------
+  //  Regex-based extraction (expanded for global)
+  // -------------------------------------------------
+  const providerGuess =
+    /dojo|paymentsense/i.test(text) ? "Dojo" :
+    /global payments/i.test(text) ? "Global Payments" :
+    /elavon/i.test(text) ? "Elavon" :
+    /barclaycard/i.test(text) ? "Barclaycard" :
+    /worldpay/i.test(text) ? "Worldpay" :
+    /stripe/i.test(text) ? "Stripe" :
+    /square/i.test(text) ? "Square" :
+    /paypal/i.test(text) ? "PayPal" :
+    /adyen/i.test(text) ? "Adyen" :
+    /evo/i.test(text) ? "EVO" :
+    /tide/i.test(text) ? "Tide" :
+    null;
 
-  // --- START MODIFICATION ---
-  // This regex now finds the *next* currency amount after "amex" or "american express"
-  const amexRegex = /(amex|american express)[\s\S]*?([£][\d,]+\.\d{2})/i;
-  const amexMatch = text.match(amexRegex);
-  const amexTurnover = amexMatch ? money(amexMatch[2]) : 0;
-  // --- END MODIFICATION ---
-  
-  const other = Math.max(0, monthTurnover - amexTurnover);
+  let monthTurnover =
+    findMoneyInText(
+      text,
+      /Total value of transactions[^0-9]([0-9,]+\.\d{2})/i
+    ) ||
+    findMoneyInText(text, /Total sales[^0-9]([0-9,]+\.\d{2})/i) ||
+    findMoneyInText(text, /Card turnover[^0-9]([0-9,]+\.\d{2})/i) ||
+    findMoneyInText(
+      text,
+      /Total value of[\s]transactions\s([\d,]+\.\d{2})/i
+    ) || // Added for Dojo-like
+    (findMoneyInText(
+      text,
+      /Total card transactions in the last[^0-9]([0-9,]+\.\d{2})/i
+    ) || 0) / 12 || // Annual fallback divide by 12
+    findMoneyInText(text, /Monthly Turnover[^0-9]([0-9,]+\.\d{2})/i) || // Global addition
+    findMoneyInText(text, /Processing Volume[^0-9]([0-9,]+\.\d{2})/i) || // e.g., Stripe
+    0;
 
-  const mix = {
-    debitTurnover: other * 0.5,
-    creditTurnover: other * 0.5,
-    businessTurnover: 0,
-    internationalTurnover: 0,
-    amexTurnover,
-    txCount: tx,
-  };
+  const txCountRaw =
+    text.match(/Total number of transactions[^0-9]*([0-9,]+)/i)?.[1] ||
+    text.match(/Number of[\s]transactions\s([\d,]+)/i)?.[1]; // Added
 
-  const present = [
-    monthTurnover > 0,
-    tx > 0,
-    fixed > 0,
-    currentFeesMonthly != null,
-  ].filter(Boolean).length;
+  const txCount = txCountRaw ? parseInt(clean(txCountRaw)) : 0;
 
-  const confidence = Math.min(1, present / 4);
+  const currentFeesMonthly =
+    findMoneyInText(text, /Total charges[^0-9]([0-9,]+\.\d{2})/i) ||
+    findMoneyInText(text, /Net amount[^0-9]([0-9,]+\.\d{2})/i) ||
+    findMoneyInText(text, /Card processing fees[^0-9]([0-9,]+\.\d{2})/i) ||
+    findMoneyInText(
+      text,
+      /Total transaction fees and charges[^0-9]([0-9,]+\.\d{2})/i
+    ) || // Dojo
+    findMoneyInText(text, /Total Fees[^0-9]*([0-9,]+\.\d{2})/i) || // Global
+    null;
+
+  let currentFixedMonthly = 0;
+
+  [
+    /terminal rental[^0-9]([0-9,]+\.\d{2})/i,
+    /pci (?:fee|charge)[^0-9]([0-9,]+\.\d{2})/i,
+    /statement fee[^0-9]([0-9,]+\.\d{2})/i,
+    /minimum monthly[^0-9]([0-9,]+\.\d{2})/i,
+    /monthly fee[^0-9]([0-9,]+\.\d{2})/i,
+    /Card machine & account services[^0-9]([0-9,]+\.\d{2})/i, // Dojo
+    /Other fees[^0-9]*([0-9,]+\.\d{2})/i, // Global
+  ].forEach((re) => {
+    const v = findMoneyInText(text, re);
+    if (v) currentFixedMonthly += v;
+  });
+
+  const debitTurnover =
+    findMoneyInText(text, /Visa Debit(?:[^0-9]+)([0-9,]+\.\d{2})/i) ||
+    findMoneyInText(text, /Mastercard Debit(?:[^0-9]+)([0-9,]+\.\d{2})/i) ||
+    findMoneyInText(text, /Debit cards(?:[^0-9]+)([0-9,]+\.\d{2})/i) || // Dojo
+    0;
+
+  const creditTurnover =
+    findMoneyInText(text, /Visa Credit(?:[^0-9]+)([0-9,]+\.\d{2})/i) ||
+    findMoneyInText(text, /Mastercard Credit(?:[^0-9]+)([0-9,]+\.\d{2})/i) ||
+    findMoneyInText(text, /Credit cards(?:[^0-9]+)([0-9,]+\.\d{2})/i) || // Dojo
+    0;
+
+  const businessTurnover =
+    findMoneyInText(text, /Business(?:[^0-9]+)([0-9,]+\.\d{2})/i) ||
+    findMoneyInText(
+      text,
+      /Other business cards(?:[^0-9]+)([0-9,]+\.\d{2})/i
+    ) || // Dojo
+    0;
+
+  const internationalTurnover =
+    findMoneyInText(text, /International(?:[^0-9]+)([0-9,]+\.\d{2})/i) ||
+    findMoneyInText(
+      text,
+      /International cards(?:[^0-9]+)([0-9,]+\.\d{2})/i
+    ) || // Dojo
+    0;
+
+  const amexTurnover =
+    findMoneyInText(text, /American Express(?:[^0-9]+)([0-9,]+\.\d{2})/i) ||
+    findMoneyInText(
+      text,
+      /American Express cards(?:[^0-9]+)([0-9,]+\.\d{2})/i
+    ) || // Dojo
+    0;
+
+  // Fallback: if top-level monthTurnover missing, sum components
+  if (!monthTurnover) {
+    const sum =
+      debitTurnover +
+      creditTurnover +
+      businessTurnover +
+      internationalTurnover +
+      amexTurnover;
+    if (sum > 0) monthTurnover = sum;
+  }
+
+  const hasDetail =
+    debitTurnover ||
+    creditTurnover ||
+    businessTurnover ||
+    internationalTurnover;
+
+  const mix = hasDetail
+    ? {
+        debitTurnover,
+        creditTurnover,
+        businessTurnover,
+        internationalTurnover,
+        amexTurnover,
+        txCount,
+      }
+    : (() => {
+        const other = Math.max(0, monthTurnover - amexTurnover);
+        return {
+          debitTurnover: other * 0.5,
+          creditTurnover: other * 0.5,
+          businessTurnover: 0,
+          internationalTurnover: 0,
+          amexTurnover,
+          txCount,
+        };
+      })();
+
+  // Detect currency (simple regex)
+  const currencyMatch = text.match(/([£$€¥₹])/);
+  const currency = currencyMatch
+    ? currencyMatch[1] === "£"
+      ? "GBP"
+      : currencyMatch[1] === "$"
+      ? "USD"
+      : currencyMatch[1] === "€"
+      ? "EUR"
+      : "UNKNOWN"
+    : "GBP";
 
   return {
-    providerGuess: null,
-    confidence,
+    providerGuess,
+    confidence: 0.5,
     monthTurnover,
     mix,
     currentFeesMonthly,
-    currentFixedMonthly: fixed,
+    currentFixedMonthly,
+    currency,
   };
 }

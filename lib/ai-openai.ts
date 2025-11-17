@@ -1,101 +1,111 @@
-import { AiExtractSchema, AiExtract } from './ai'
-import { extractPdfTextFromBytes } from '@/lib/parsers/pdfText'
+// lib/ai-openai.ts
+import { AiExtractSchema } from "./ai"; // keep your zod schema here
+import { extractPdfTextFromBytes } from "./parsers/pdfText";
 
-export async function openaiExtractFromFile(file: Blob): Promise<AiExtract> {
-  if (!process.env.OPENAI_API_KEY) throw new Error('Missing OPENAI_API_KEY')
-  
-  const bytes = Buffer.from(await file.arrayBuffer())
-  const mimeType = file.type || 'application/pdf';
-  
-  // --- START MODIFICATION ---
-  // Check if the file is a PDF
-  const isPdfFile = mimeType === 'application/pdf';
+const SYSTEM =
+  "You extract structured finance data from merchant services statements worldwide. Return ONLY valid JSON.";
 
-  const system = `You extract structured finance data from UK merchant services statements. Return ONLY valid JSON.`
-  
-  // --- START MODIFICATION ---
-  // Added explicit fallback rules for the 'mix' object
-  const user = `Extract the following fields from the merchant statement. You MUST find the grand total for each.
-- Total turnover (total value of all transactions). Note: If you see a table "Card transaction rates" with a "Total value of transactions", that value IS the total turnover.
-- Total transaction count
-- Total amount charged in fees by the provider (this is the total 'Net amount' or 'Total due' before VAT)
-- providerGuess
-- sum of fixed monthly fees
-- card mix (debit, credit, business, international, amex turnovers and total txCount).
-- **MIX FALLBACK RULE:** If you cannot find a detailed card mix, find the 'amexTurnover' (if any), subtract it from 'monthTurnover' to get 'otherTurnover', then set 'debitTurnover' = 'otherTurnover' * 0.5 and 'creditTurnover' = 'otherTurnover' * 0.5. Set 'businessTurnover' and 'internationalTurnover' to 0.
+const INSTRUCTIONS = `
+Extract the following fields from the merchant statement. You MUST find the grand total for each, focusing on the current billing/statement period (e.g., monthly). Ignore annual or 12-month summaries unless no period-specific data is available—in that case, estimate monthly by dividing annual by 12 and note it.
 
-Return ONLY valid JSON.`
-  // --- END MODIFICATION ---
+Total turnover ("monthTurnover"): total value of ALL transactions for the statement period. Sum breakdowns by card type if no explicit total.
+Total transaction count ("txCount"): total number of transactions for the period. Sum if broken down.
+Total amount charged in fees by the provider ("currentFeesMonthly"): sum of all variable/transaction fees (exclude fixed if separate).
+"providerGuess": short name of the provider (e.g., "Dojo", "Global Payments", "Elavon", "Barclaycard", "Stripe", "Square", "PayPal", "Adyen").
+"currentFixedMonthly": sum of fixed monthly fees (e.g., PCI, terminal rental, minimum charges).
+"mix": { debitTurnover, creditTurnover, businessTurnover, internationalTurnover, amexTurnover, txCount }. Use absolute volumes if available; if only percentages, apply to monthTurnover.
+"currency": detected currency code (e.g., "GBP", "USD", "EUR"). Default to "GBP" if unclear.
 
-  let requestBody: any;
+MIX FALLBACK RULE:
+If detailed mix missing: compute amexTurnover (or 0), otherTurnover = monthTurnover - amexTurnover, debit=credit=other*0.5, business=0, international=0, txCount = total txCount.
 
-  if (isPdfFile) {
-    // PDF: Extract text and send text-only request
-    console.log("File is PDF, extracting text for AI...");
-    const extractedText = await extractPdfTextFromBytes(bytes);
-    
-    requestBody = {
-      model: process.env.AI_MODEL || 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: system },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: "Here is the text extracted from the PDF:\n\n" + extractedText },
-            { type: 'text', text: user }
-          ]
-        }
-      ],
-      response_format: { type: 'json_object' }
-    };
+Return ONLY valid JSON with top-level keys:
+providerGuess
+monthTurnover
+currentFeesMonthly
+currentFixedMonthly
+mix
+currency
+`;
 
-  } else {
-    // IMAGE: Send image data URL request
-    console.log("File is Image, sending base64 data for AI...");
-    const base64data = bytes.toString('base64');
-    requestBody = {
-      model: process.env.AI_MODEL || 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: system },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: user },
-            {
-              type: 'image_url',
-              image_url: {
-                url: `data:${mimeType};base64,${base64data}`
-              }
-            }
-          ]
-        }
-      ],
-      response_format: { type: 'json_object' }
-    };
-  }
+async function callOpenAI(requestBody: any) {
+  const API_KEY = process.env.OPENAI_API_KEY;
+  if (!API_KEY) throw new Error("Missing OPENAI_API_KEY");
 
-  // ... (rest of the file remains the same) ...
-  
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
     headers: {
-      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-      'Content-Type': 'application/json'
+      Authorization: `Bearer ${API_KEY}`,
+      "Content-Type": "application/json",
     },
-    body: JSON.stringify(requestBody), 
-    signal: AbortSignal.timeout(parseInt(process.env.AI_TIMEOUT_MS || '240000'))
-  })
+    body: JSON.stringify(requestBody),
+    signal: AbortSignal.timeout(
+      parseInt(process.env.AI_TIMEOUT_MS || "300000")
+    ), // Increased default timeout to 5 min
+  });
 
   if (!res.ok) {
-    const errorBody = await res.text();
-    console.error("OpenAI API Error Body:", errorBody);
-    throw new Error(`OpenAI error ${res.status}`)
+    const body = await res.text();
+    console.error("OpenAI API error:", res.status, body);
+    throw new Error(`OpenAI error ${res.status}`);
   }
 
-  const body = await res.json()
+  return res.json();
+}
 
-  const text = body.choices[0].message.content;
-  const raw = text; 
-  
-  return AiExtractSchema.parse(typeof raw === 'string' ? JSON.parse(raw) : raw)
+export async function openaiExtractFromFile(file: Blob): Promise<unknown> {
+  const MODEL = process.env.AI_MODEL || "gpt-4o-mini";
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const mimeType = file.type || "application/pdf";
+  const isPdf = mimeType === "application/pdf";
+
+  // Build messages: instructions first, then statement/input
+  let messages: any[] = [{ role: "system", content: SYSTEM }];
+
+  if (isPdf) {
+    const extractedText = await extractPdfTextFromBytes(bytes);
+    messages.push({
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text:
+            INSTRUCTIONS +
+            "\n\n--- BEGIN STATEMENT TEXT ---\n\n" +
+            extractedText +
+            "\n\n--- END STATEMENT TEXT ---",
+        },
+      ],
+    });
+  } else {
+    // image fallback (camera/photo). Send instructions then image.
+    const base64data = Buffer.from(bytes).toString("base64");
+    messages.push({
+      role: "user",
+      content: [
+        { type: "text", text: INSTRUCTIONS },
+        {
+          type: "image_url",
+          image_url: { url: `data:${mimeType};base64,${base64data}` },
+        },
+      ],
+    });
+  }
+
+  const requestBody = {
+    model: MODEL,
+    messages,
+    response_format: { type: "json_object" },
+  };
+
+  const json = await callOpenAI(requestBody);
+  const raw = json.choices?.[0]?.message?.content;
+  if (!raw) throw new Error("OpenAI returned no content");
+
+  // Raw may be object already (because response_format), or a JSON string
+  const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+
+  // Validate/parse with your zod schema
+  return AiExtractSchema.parse(parsed);
 }

@@ -1,3 +1,4 @@
+// config/rates.ts
 export const RATES = {
   tiers: [
     { name: '≤ £15k', turnover_max: 15000, rates: { all_cards_pct: 0.79, amex_pct: 0.79, auth_fee: 0.025 } },

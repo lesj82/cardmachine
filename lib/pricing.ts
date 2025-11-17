@@ -1,3 +1,4 @@
+// lib/pricing.ts
 import { RATES, RatesConfig } from '@/config/rates'
 
 export type Mix = { debitTurnover:number; creditTurnover:number; businessTurnover:number; internationalTurnover:number; amexTurnover:number; txCount:number }

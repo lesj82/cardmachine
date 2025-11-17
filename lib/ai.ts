@@ -1,4 +1,6 @@
-import { z } from 'zod'
+// lib/ai.ts
+import { z } from 'zod';
+
 export const AiExtractSchema = z.object({
   providerGuess: z.string().nullable(),
   monthTurnover: z.number().nonnegative(),
@@ -12,5 +14,7 @@ export const AiExtractSchema = z.object({
   }),
   currentFeesMonthly: z.number().nullable(),
   currentFixedMonthly: z.number().nonnegative(),
-})
-export type AiExtract = z.infer<typeof AiExtractSchema>
+  currency: z.string().optional(), // Added for global currencies, e.g., "GBP", "USD"
+});
+
+export type AiExtract = z.infer<typeof AiExtractSchema>;
