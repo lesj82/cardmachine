@@ -5,6 +5,9 @@ export default function ResultsPanel({ data }: { data: any }) {
   // The new API response format is: { status: 'ok', result: { ... } }
   if (!data || !data.result) return null
 
+  console.log("ResultsPanel received data:", data);
+  console.log("ResultsPanel received data result:", data.result);
+
   // 2. Extract the result object
   const r = data.result
 

@@ -1,10 +1,8 @@
-// lib/providers.ts
 import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import OpenAI from "openai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { createWorker } from "tesseract.js";
 import { Mix } from "@/lib/pricing";
 
 const openai = new OpenAI({
@@ -19,28 +17,18 @@ export interface ExtractedFields {
   providerGuess: string;
 }
 
-export async function extractFromFile(file: File): Promise<ExtractedFields> {
+// Only handles PDFs on Server
+export async function extractFromPdf(file: File): Promise<string> {
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
   const fileName = file.name.toLowerCase();
-  const fileType = file.type || "";
 
-  if (fileType === "application/pdf" || fileName.endsWith(".pdf")) {
-    return await processPdf(buffer, fileName);
-  } else if (
-    fileType.startsWith("image/") ||
-    /\.(jpg|jpeg|png|webp)$/.test(fileName)
-  ) {
-    return await processImageWithTesseract(buffer);
-  } else {
-    throw new Error("Unsupported file type. Please upload a PDF or Image (JPG, PNG).");
+  if (!fileName.endsWith(".pdf") && file.type !== "application/pdf") {
+     throw new Error("Server only handles PDFs. Images must be processed on client.");
   }
-}
 
-// --- PDF Handling ---
-async function processPdf(buffer: Buffer, originalName: string): Promise<ExtractedFields> {
   const tempDir = os.tmpdir();
-  const safeName = originalName.replace(/[^a-z0-9.]/gi, "_");
+  const safeName = fileName.replace(/[^a-z0-9.]/gi, "_");
   const tempFilePath = path.join(tempDir, `upload-${Date.now()}-${safeName}`);
 
   try {
@@ -50,9 +38,9 @@ async function processPdf(buffer: Buffer, originalName: string): Promise<Extract
     const fullText = docs.map((doc) => doc.pageContent).join("\n\n");
 
     if (!fullText.trim() || fullText.length < 50) {
-      throw new Error("PDF text is empty/scanned.");
+      throw new Error("PDF text is empty. It might be a scanned image PDF.");
     }
-    return await analyzeTextWithOpenAI(fullText);
+    return fullText;
   } catch (error) {
     console.error("PDF Extraction failed:", error);
     throw error;
@@ -61,39 +49,15 @@ async function processPdf(buffer: Buffer, originalName: string): Promise<Extract
   }
 }
 
-// --- Image Handling (Tesseract v5) ---
-async function processImageWithTesseract(buffer: Buffer): Promise<ExtractedFields> {
-  console.log("Starting OCR with Tesseract...");
-  let worker;
-  try {
-    worker = await createWorker("eng");
-    const ret = await worker.recognize(buffer);
-    const rawText = ret.data.text;
-    
-    console.log("OCR Text Length:", rawText.length);
-
-    if (!rawText.trim() || rawText.length < 20) {
-        throw new Error("OCR extracted insufficient text.");
-    }
-
-    return await analyzeTextWithOpenAI(rawText);
-  } catch (error) {
-    console.error("Tesseract OCR failed:", error);
-    throw error;
-  } finally {
-    if (worker) await worker.terminate();
-  }
-}
-
-// --- AI Analysis ---
-
-const SYSTEM_PROMPT = `You are an expert financial auditor specializing in UK Merchant Services Statements.
+// Analyzes Text (Shared by both PDF and Client-side OCR text)
+export async function analyzeTextWithOpenAI(text: string): Promise<ExtractedFields> {
+  const SYSTEM_PROMPT = `You are an expert financial auditor specializing in UK Merchant Services Statements.
 
 Your goal is to extract a **SINGLE MONTH'S** financial data.
 
 Return a JSON object with EXACTLY this structure:
 {
-  "_thought_process": "Explain your logic...",
+  "_thought_process": "Explain logic here...",
   "monthTurnover": number,       
   "currentFeesMonthly": number,  
   "currentFixedMonthly": number, 
@@ -131,7 +95,6 @@ Return a JSON object with EXACTLY this structure:
 
 IMPORTANT: Return ONLY raw numbers.`;
 
-async function analyzeTextWithOpenAI(text: string): Promise<ExtractedFields> {
   const truncatedText = text.slice(0, 100000);
 
   const completion = await openai.chat.completions.create({
@@ -144,10 +107,6 @@ async function analyzeTextWithOpenAI(text: string): Promise<ExtractedFields> {
     ]
   });
 
-  return parseOpenAIResponse(completion);
-}
-
-function parseOpenAIResponse(completion: any): ExtractedFields {
   const content = completion.choices[0].message.content;
   if (!content) throw new Error("AI response was empty");
 
@@ -158,9 +117,7 @@ function parseOpenAIResponse(completion: any): ExtractedFields {
     throw new Error("AI did not return valid JSON");
   }
 
-  if (raw._thought_process) {
-    console.log("AI Reasoning:", raw._thought_process);
-  }
+  if (raw._thought_process) console.log("AI Reasoning:", raw._thought_process);
 
   const n = (val: any) => {
     if (typeof val === 'number') return val;

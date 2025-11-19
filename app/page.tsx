@@ -4,45 +4,94 @@ import UploadDropzone from '@/components/UploadDropzone'
 import ResultsPanel from '@/components/ResultsPanel'
 import CalendlyEmbed from '@/components/CalendlyEmbed'
 import Navbar from '@/components/Navbar'
+import { createWorker } from 'tesseract.js'
 
 export default function Page() {
   const brandBlue = '#5170ff'
   const [data, setData] = React.useState<any>(null)
   const [loading, setLoading] = React.useState(false)
+  const [statusText, setStatusText] = React.useState('')
   const [email, setEmail] = React.useState('')
   const [name, setName] = React.useState('')
   const [sending, setSending] = React.useState(false)
   const [sentOk, setSentOk] = React.useState<null | boolean>(null)
   const [error, setError] = React.useState<string>('')
 
+  async function performClientSideOCR(file: File): Promise<string> {
+    setStatusText("Initializing OCR engine...")
+    const worker = await createWorker("eng")
+    
+    setStatusText("Scanning image text...")
+    const ret = await worker.recognize(file)
+    const text = ret.data.text
+    
+    await worker.terminate()
+    return text
+  }
+
   async function handleFile(f: File) {
     setLoading(true)
     setSentOk(null)
     setError('')
-    setData(null) // Clear previous data
-    const form = new FormData(); form.append('file', f)
+    setData(null)
+    setStatusText('Analyzing...')
 
-    // --- START MODIFICATION ---
     try {
-      const res = await fetch('/api/analyse', { method: 'POST', body: form })
+      let res
+      
+      // STRATEGY: Check file type
+      if (f.type.startsWith("image/")) {
+        // --- OPTION A: IMAGE (Run OCR locally) ---
+        console.log("Image detected. Running Client-Side OCR...")
+        const extractedText = await performClientSideOCR(f)
+        console.log("OCR Done. Text length:", extractedText.length)
+
+        if (extractedText.length < 20) throw new Error("OCR failed: Image text not readable")
+
+        setStatusText("Analyzing data...")
+        
+        // Send JSON payload with raw text
+        res = await fetch('/api/analyse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: extractedText,
+            // Pass any other form inputs here if you add them to the upload step later
+            terminalOption: 'none',
+            terminalsCount: 1
+          })
+        })
+
+      } else {
+        // --- OPTION B: PDF (Send to Server) ---
+        setStatusText("Uploading PDF...")
+        const form = new FormData()
+        form.append('file', f)
+        // Add default values for form data
+        form.append('terminalOption', 'none')
+        form.append('terminalsCount', '1')
+
+        res = await fetch('/api/analyse', { method: 'POST', body: form })
+      }
+
       const json = await res.json()
+      console.log(json)
+      console.log(json.result)
       
       if (!res.ok) {
-        // If API returned an error (like 400), set the error state
-        throw new Error(json.error || 'Failed to analyse file.')
+        throw new Error(json.error || json.message || 'Failed to analyse file.')
       }
       
-      // Only set data if res.ok is true
-      setData(json)
+      setData(json.result) // Note: API returns { status: 'ok', result: ... }
 
     } catch (e:any) {
-      // Catch network errors or the error thrown above
+      console.error(e)
       setError(e?.message || 'Unexpected error during analysis.')
-      setData(null) // Ensure data is null on error
+      setData(null)
     } finally {
       setLoading(false)
+      setStatusText('')
     }
-    // --- END MODIFICATION ---
   }
 
   async function emailQuote() {
@@ -85,17 +134,14 @@ export default function Page() {
               <li>✅ All hidden fees identified and removed</li>
               <li>✅ Clear monthly and yearly cost saving <span style={{ color: brandBlue }}>displayed in 30 seconds</span></li>
             </ul>
-            {/* <a href="#upload" className="mt-8 inline-flex text-white font-medium px-6 py-3 rounded-xl shadow-sm" style={{ backgroundColor: brandBlue }}>Start Now</a> */}
           </div>
           <div className="bg-white rounded-2xl shadow p-6 border">
             <div id="upload">
               <h2 className="text-lg font-semibold mb-2">Upload Statement</h2>
               <p className="text-sm text-gray-600 mb-4">PDF, JPG, or PNG. We’ll never share your data. Delete anytime.</p>
               <UploadDropzone onFile={handleFile} />
-              {loading && <div className="mt-3 text-sm">Analyzing…</div>}
-              {/* --- ADD THIS LINE --- */}
+              {loading && <div className="mt-3 text-sm font-medium text-blue-600">{statusText || 'Processing...'}</div>}
               {error && !loading && <div className="mt-3 text-sm text-red-600">{error}</div>}
-              {/* --- END ADDITION --- */}
             </div>
           </div>
         </div>
@@ -104,7 +150,31 @@ export default function Page() {
       <section className="max-w-6xl mx-auto px-6 py-10">
         {data ? (
           <>
-            <ResultsPanel data={data} />
+            {/* <ResultsPanel data={data} /> */}
+            <div className="max-w-3xl mx-auto bg-[#5170ff10] border border-gray-200 rounded-2xl p-6 shadow-sm">
+              <h3 className="text-xl font-semibold text-gray-900">Estimated savings</h3>
+              <p className="mt-1 text-sm text-gray-600">
+                Based on the statement you uploaded and CardMachineQuote.com standard rates.
+              </p>
+              <dl className="mt-4 space-y-1 text-sm text-gray-800">
+                <div className="flex justify-between">
+                  <dt className="font-medium">Current monthly cost</dt>
+                  <dd>£{data.currentMonthlyCost.toFixed(2)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="font-medium">New monthly cost</dt>
+                  <dd>£{data.newMonthlyCost.toFixed(2)}</dd>
+                </div>
+                <div className="flex justify-between text-green-700">
+                  <dt className="font-medium">Monthly saving</dt>
+                  <dd>£{data.monthlySaving.toFixed(2)}</dd>
+                </div>
+                <div className="flex justify-between text-green-700">
+                  <dt className="font-medium">Annual saving</dt>
+                  <dd>£{data.annualSaving.toFixed(2)}</dd>
+                </div>
+              </dl>
+            </div>
             <div className="mt-6 bg-white border rounded-2xl p-6">
               <h4 className="text-lg font-semibold">Email me my quote</h4>
               <p className="text-sm text-gray-600 mb-4">We’ll send a one‑page PDF of your savings. No spam.</p>
@@ -122,7 +192,6 @@ export default function Page() {
         )}
       </section>
 
-      
       <section className="border-y">
         <div className="max-w-6xl mx-auto px-6 py-6 grid sm:grid-cols-3 gap-4 text-sm text-gray-700">
           <div><span className="font-semibold text-gray-900">Fast answers</span> — instant estimate on upload</div>
@@ -148,28 +217,18 @@ export default function Page() {
         </div>
       </section>
 
-      {/* --- START MODIFICATION --- */}
       <footer className="border-t">
-        {/* Main flex container: stacks on mobile, row on desktop */}
         <div className="max-w-6xl mx-auto px-6 py-8 text-sm text-gray-600 flex flex-col items-center gap-4 md:flex-row">
-          
-          {/* Group 1: Logo + Copyright */}
-          {/* Stacks on mobile, row on desktop */}
           <div className="flex flex-col items-center gap-2 md:flex-row md:gap-3">
             <img src="/logo-cmq2.png" alt="CardMachineQuote.com" className="h-6 w-auto object-contain" />
             <span>© {new Date().getFullYear()} CardMachineQuote.com</span>
           </div>
-          
-          {/* Group 2: Links */}
-          {/* Stacks on mobile, row on desktop. Pushes to the right ONLY on desktop */}
           <div className="flex flex-col items-center gap-2 md:flex-row md:ml-auto md:gap-4">
             <a href="/privacy" className="hover:underline">Privacy Policy</a>
             <a href="/terms" className="hover:underline">Terms & Conditions</a>
           </div>
-
         </div>
       </footer>
-      {/* --- END MODIFICATION --- */}
     </main>
   )
 }
