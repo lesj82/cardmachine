@@ -24,3 +24,20 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Make react-international-phone match the rest of the form */
+.react-international-phone-wrapper .react-international-phone-input {
+  @apply w-full rounded-lg border bg-white px-4 py-3 text-slate-800 placeholder:text-slate-500 outline-none transition-all;
+}
+
+.react-international-phone-wrapper .react-international-phone-input:focus {
+  @apply ring-2 ring-blue-500 border-transparent;
+}
+
+.react-international-phone-wrapper.error .react-international-phone-input {
+  @apply border-red-400 bg-red-50 ring-2 ring-red-200;
+}
+
+.react-international-phone-wrapper .react-international-phone-country-selector-button {
+  @apply border border-r-0 rounded-l-lg bg-white;
+}

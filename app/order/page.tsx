@@ -1,6 +1,8 @@
 'use client'
 import React, { useState } from 'react'
 import Navbar from '@/components/Navbar'
+import 'react-international-phone/style.css'
+import { PhoneInput } from 'react-international-phone'
 
 export default function OrderPage() {
   const brandBlue = '#5170ff'
@@ -211,21 +213,17 @@ export default function OrderPage() {
               {/* Phone */}
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">Phone *</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-3 text-xl">🇬🇧</span>
-                  <input 
-                    name="phone"
-                    value={formData.phone}
-                    onChange={handleChange}
-                    placeholder="Enter your phone number" 
-                    className={`w-full rounded-lg border pl-12 pr-4 py-3 text-slate-800 placeholder:text-slate-500 outline-none transition-all ${
-                      showValidation && !formData.phone 
-                        ? 'border-red-400 bg-red-50 focus:ring-2 focus:ring-red-200' 
-                        : 'border-transparent bg-white focus:ring-2 focus:ring-blue-500'
-                    }`}
-                  />
-                </div>
-                {showValidation && !formData.phone && <p className="text-red-500 text-xs mt-1">ⓘ Phone number is required.</p>}
+                <PhoneInput
+                  defaultCountry="gb"     // show UK flag by default
+                  value={formData.phone}
+                  onChange={(value) => setFormData(prev => ({ ...prev, phone: value }))}
+                  inputClassName="w-full rounded-lg border-none bg-white px-4 py-3 text-slate-800 placeholder:text-slate-500 outline-none"
+                  className={getInputClass(showValidation && !formData.email)}
+                  placeholder="Enter your phone number"
+                />
+                {showValidation && !formData.phone && (
+                  <p className="text-red-500 text-xs mt-1">ⓘ Phone number is required.</p>
+                )}
               </div>
 
               {/* Company Type */}
