@@ -1,7 +1,6 @@
 'use client'
 import React from 'react'
 import UploadDropzone from '@/components/UploadDropzone'
-import ResultsPanel from '@/components/ResultsPanel'
 import CalendlyEmbed from '@/components/CalendlyEmbed'
 import Navbar from '@/components/Navbar'
 import { createWorker } from 'tesseract.js'
@@ -56,7 +55,6 @@ export default function Page() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             text: extractedText,
-            // Pass any other form inputs here if you add them to the upload step later
             terminalOption: 'none',
             terminalsCount: 1
           })
@@ -118,8 +116,16 @@ export default function Page() {
     }
   }
 
+  // Close modal and reset data view (keeps form data if user wants to edit and resend)
+  function closeModal() {
+    setData(null)
+    setSentOk(null)
+    // Optional: clear error if you want a fresh state next time
+    // setError('') 
+  }
+
   return (
-    <main className="min-h-screen bg-white text-gray-900 font-sans">
+    <main className="min-h-screen bg-white text-gray-900 font-sans relative">
       <Navbar />
 
       <section className="border-b" style={{ backgroundColor: `${brandBlue}10` }}>
@@ -145,51 +151,6 @@ export default function Page() {
             </div>
           </div>
         </div>
-      </section>
-
-      <section className="max-w-6xl mx-auto px-6 py-10">
-        {data ? (
-          <>
-            {/* <ResultsPanel data={data} /> */}
-            <div className="max-w-3xl mx-auto bg-[#5170ff10] border border-gray-200 rounded-2xl p-6 shadow-sm">
-              <h3 className="text-xl font-semibold text-gray-900">Estimated savings</h3>
-              <p className="mt-1 text-sm text-gray-600">
-                Based on the statement you uploaded and CardMachineQuote.com standard rates.
-              </p>
-              <dl className="mt-4 space-y-1 text-sm text-gray-800">
-                <div className="flex justify-between">
-                  <dt className="font-medium">Current monthly cost</dt>
-                  <dd>£{data.currentMonthlyCost.toFixed(2)}</dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="font-medium">New monthly cost</dt>
-                  <dd>£{data.newMonthlyCost.toFixed(2)}</dd>
-                </div>
-                <div className="flex justify-between text-green-700">
-                  <dt className="font-medium">Monthly saving</dt>
-                  <dd>£{data.monthlySaving.toFixed(2)}</dd>
-                </div>
-                <div className="flex justify-between text-green-700">
-                  <dt className="font-medium">Annual saving</dt>
-                  <dd>£{data.annualSaving.toFixed(2)}</dd>
-                </div>
-              </dl>
-            </div>
-            <div className="mt-6 bg-white border rounded-2xl p-6">
-              <h4 className="text-lg font-semibold">Email me my quote</h4>
-              <p className="text-sm text-gray-600 mb-4">We’ll send a one‑page PDF of your savings. No spam.</p>
-              <div className="grid md:grid-cols-3 gap-3">
-                <input value={name} onChange={e=>setName(e.target.value)} placeholder="Business name (optional)" className="border rounded-lg px-3 py-2" />
-                <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email address" className="border rounded-lg px-3 py-2 md:col-span-1" />
-                <button onClick={emailQuote} disabled={!email || sending} className="rounded-lg px-4 py-2 text-white" style={{ backgroundColor: brandBlue }}>{sending ? 'Sending…' : 'Send PDF'}</button>
-              </div>
-              {sentOk===true && <div className="text-green-600 text-sm mt-2">Sent! Check your inbox for “Your CardMachineQuote.com savings quote”.</div>}
-              {sentOk===false && <div className="text-red-600 text-sm mt-2">{error || 'Could not send email.'}</div>}
-            </div>
-          </>
-        ) : (
-          <div className="text-center text-gray-600">Your estimate will appear here after you upload a statement.</div>
-        )}
       </section>
 
       <section className="border-y">
@@ -229,6 +190,101 @@ export default function Page() {
           </div>
         </div>
       </footer>
+
+      {/* --------------------------------------------- */}
+      {/*              RESULTS POPUP MODAL              */}
+      {/* --------------------------------------------- */}
+      {data && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div 
+            className="bg-white w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl relative flex flex-col animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close Button */}
+            <button 
+              onClick={closeModal}
+              className="absolute top-4 right-4 p-2 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors text-gray-600 z-10"
+              aria-label="Close"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+
+            <div className="p-6 md:p-10">
+              <div className="text-center mb-8">
+                <h2 className="text-2xl font-bold text-gray-900">Analysis Complete</h2>
+                <p className="text-gray-600">Here is what we found from your statement.</p>
+              </div>
+
+              {/* Savings Card */}
+              <div className="bg-[#5170ff10] border border-blue-100 rounded-2xl p-6 shadow-sm mb-8">
+                <h3 className="text-xl font-semibold text-gray-900 mb-1">Estimated savings</h3>
+                <p className="text-sm text-gray-600 mb-4">Based on the statement you uploaded and standard rates.</p>
+                
+                <dl className="space-y-3 text-sm text-gray-800">
+                  <div className="flex justify-between py-2 border-b border-blue-200/50">
+                    <dt className="font-medium">Current monthly cost</dt>
+                    <dd>£{data.currentMonthlyCost.toFixed(2)}</dd>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-blue-200/50">
+                    <dt className="font-medium">New monthly cost</dt>
+                    <dd>£{data.newMonthlyCost.toFixed(2)}</dd>
+                  </div>
+                  <div className="flex justify-between py-2 text-green-700 font-semibold text-base">
+                    <dt>Monthly saving</dt>
+                    <dd>£{data.monthlySaving.toFixed(2)}</dd>
+                  </div>
+                  <div className="flex justify-between py-2 text-green-700 font-bold text-lg bg-green-50 rounded px-3 -mx-3">
+                    <dt>Annual saving</dt>
+                    <dd>£{data.annualSaving.toFixed(2)}</dd>
+                  </div>
+                </dl>
+              </div>
+
+              {/* Email Section */}
+              <div className="bg-gray-50 border rounded-2xl p-6">
+                <h4 className="text-lg font-semibold mb-1">Email me my quote</h4>
+                <p className="text-sm text-gray-600 mb-4">We’ll send a one‑page PDF of your savings. No spam.</p>
+                
+                <div className="grid md:grid-cols-2 gap-3">
+                  <input 
+                    value={name} 
+                    onChange={e=>setName(e.target.value)} 
+                    placeholder="Business name (optional)" 
+                    className="border rounded-lg px-3 py-2 w-full focus:ring-2 focus:ring-blue-500 outline-none" 
+                  />
+                  <input 
+                    value={email} 
+                    onChange={e=>setEmail(e.target.value)} 
+                    placeholder="Email address" 
+                    className="border rounded-lg px-3 py-2 w-full focus:ring-2 focus:ring-blue-500 outline-none" 
+                  />
+                </div>
+                
+                <button 
+                  onClick={emailQuote} 
+                  disabled={!email || sending} 
+                  className="w-full mt-4 rounded-lg px-4 py-3 text-white font-medium transition-opacity hover:opacity-90 disabled:opacity-50" 
+                  style={{ backgroundColor: brandBlue }}
+                >
+                  {sending ? 'Sending PDF…' : 'Send Quote PDF'}
+                </button>
+
+                {sentOk === true && (
+                  <div className="bg-green-50 text-green-700 px-4 py-3 rounded-lg mt-4 text-sm border border-green-100 flex items-center gap-2">
+                    <span>✓</span> Sent! Check your inbox for “Your savings quote”.
+                  </div>
+                )}
+                
+                {sentOk === false && (
+                  <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg mt-4 text-sm border border-red-100">
+                    {error || 'Could not send email. Please try again.'}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
