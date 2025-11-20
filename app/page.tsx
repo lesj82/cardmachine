@@ -6,7 +6,11 @@ import Navbar from '@/components/Navbar'
 import { createWorker } from 'tesseract.js'
 
 export default function Page() {
+  // Configuration
   const brandBlue = '#5170ff'
+  const CALENDLY_URL = process.env.NEXT_PUBLIC_CALENDLY_URL || 'https://calendly.com/les-cardmachinequote/30min'
+
+  // State
   const [data, setData] = React.useState<any>(null)
   const [loading, setLoading] = React.useState(false)
   const [statusText, setStatusText] = React.useState('')
@@ -38,18 +42,15 @@ export default function Page() {
     try {
       let res
       
-      // STRATEGY: Check file type
       if (f.type.startsWith("image/")) {
         // --- OPTION A: IMAGE (Run OCR locally) ---
         console.log("Image detected. Running Client-Side OCR...")
         const extractedText = await performClientSideOCR(f)
-        console.log("OCR Done. Text length:", extractedText.length)
-
+        
         if (extractedText.length < 20) throw new Error("OCR failed: Image text not readable")
 
         setStatusText("Analyzing data...")
         
-        // Send JSON payload with raw text
         res = await fetch('/api/analyse', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -65,7 +66,6 @@ export default function Page() {
         setStatusText("Uploading PDF...")
         const form = new FormData()
         form.append('file', f)
-        // Add default values for form data
         form.append('terminalOption', 'none')
         form.append('terminalsCount', '1')
 
@@ -73,14 +73,12 @@ export default function Page() {
       }
 
       const json = await res.json()
-      console.log(json)
-      console.log(json.result)
       
       if (!res.ok) {
         throw new Error(json.error || json.message || 'Failed to analyse file.')
       }
       
-      setData(json.result) // Note: API returns { status: 'ok', result: ... }
+      setData(json.result) 
 
     } catch (e:any) {
       console.error(e)
@@ -116,12 +114,9 @@ export default function Page() {
     }
   }
 
-  // Close modal and reset data view (keeps form data if user wants to edit and resend)
   function closeModal() {
     setData(null)
     setSentOk(null)
-    // Optional: clear error if you want a fresh state next time
-    // setError('') 
   }
 
   return (
@@ -170,7 +165,7 @@ export default function Page() {
             <details className="mt-3 bg-white rounded-xl p-4 border"><summary className="font-medium cursor-pointer">How do I switch to the better deal?</summary><p className="mt-2 text-sm text-gray-700">Use the calendar at the bottom of our homepage — or the link included in your quote email — to book a call. One of our team members will walk you through the switch.</p></details>
             <details className="mt-3 bg-white rounded-xl p-4 border"><summary className="font-medium cursor-pointer">Are there any hidden fees?</summary><p className="mt-2 text-sm text-gray-700">No. There are no hidden fees. Everything you pay will be clearly displayed on your quote email.</p></details>
           </div>
-          <div>
+          <div id="book-callback">
             <h3 className="text-xl font-semibold">Book a callback</h3>
             <p className="text-sm text-gray-700">Prefer to talk? Choose a slot that suits you.</p>
             <CalendlyEmbed />
@@ -200,11 +195,9 @@ export default function Page() {
             className="bg-white w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl relative flex flex-col animate-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Close Button */}
             <button 
               onClick={closeModal}
               className="absolute top-4 right-4 p-2 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors text-gray-600 z-10"
-              aria-label="Close"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
@@ -215,7 +208,6 @@ export default function Page() {
                 <p className="text-gray-600">Here is what we found from your statement.</p>
               </div>
 
-              {/* Savings Card */}
               <div className="bg-[#5170ff10] border border-blue-100 rounded-2xl p-6 shadow-sm mb-8">
                 <h3 className="text-xl font-semibold text-gray-900 mb-1">Estimated savings</h3>
                 <p className="text-sm text-gray-600 mb-4">Based on the statement you uploaded and standard rates.</p>
@@ -240,8 +232,7 @@ export default function Page() {
                 </dl>
               </div>
 
-              {/* Email Section */}
-              <div className="bg-gray-50 border rounded-2xl p-6">
+              <div className="bg-gray-50 border rounded-2xl p-6 mb-6">
                 <h4 className="text-lg font-semibold mb-1">Email me my quote</h4>
                 <p className="text-sm text-gray-600 mb-4">We’ll send a one‑page PDF of your savings. No spam.</p>
                 
@@ -281,6 +272,21 @@ export default function Page() {
                   </div>
                 )}
               </div>
+
+              {/* --- NEW LINK: Opens Calendly --- */}
+              <div className="text-center">
+                <p className="text-gray-600 text-sm mb-3">Prefer to discuss these savings with a human?</p>
+                
+                <a 
+                  href={CALENDLY_URL}
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="block w-full text-center rounded-lg px-4 py-3 border-2 border-gray-200 text-gray-700 font-semibold hover:border-blue-500 hover:text-blue-600 transition-all"
+                >
+                  Book a Call Now
+                </a>
+              </div>
+
             </div>
           </div>
         </div>
