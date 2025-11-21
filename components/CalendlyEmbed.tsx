@@ -1,4 +1,3 @@
-import React from 'react'
 export default function CalendlyEmbed(){
   const url = process.env.NEXT_PUBLIC_CALENDLY_URL || ''
   return (

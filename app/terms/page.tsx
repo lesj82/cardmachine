@@ -3,7 +3,7 @@ import React from 'react'
 
 export default function TermsPage() {
   return (
-    <main className="max-w-4xl mx-auto px-6 pb-12">
+    <main className="max-w-4xl mx-auto px-6 pb-12 bg-white text-black">
       <Navbar />
       <h1 className="text-3xl font-bold mb-6">Website Terms & Conditions - CardMachineQuote.com</h1>
       <div className="space-y-6 prose">
