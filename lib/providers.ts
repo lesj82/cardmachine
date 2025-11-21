@@ -51,55 +51,143 @@ export async function extractFromPdf(file: File): Promise<string> {
 
 // Analyzes Text (Shared by both PDF and Client-side OCR text)
 export async function analyzeTextWithOpenAI(text: string): Promise<ExtractedFields> {
-  const SYSTEM_PROMPT = `You are an expert financial auditor specializing in UK Merchant Services Statements.
+  const SYSTEM_PROMPT = `
+You are an expert UK Merchant Services Statement auditor.
 
-Your goal is to extract a **SINGLE MONTH'S** financial data.
+Your job: Extract ONE MONTH'S financial results from any merchant service statement format.
 
-Return a JSON object with EXACTLY this structure:
+STRICT JSON OUTPUT ONLY:
 {
-  "_thought_process": "Explain logic here...",
-  "monthTurnover": number,       
-  "currentFeesMonthly": number,  
-  "currentFixedMonthly": number, 
-  "providerGuess": string,       
+  "_thought_process": "exact calculations and source rows",
+  "monthTurnover": number,
+  "currentFeesMonthly": number,
+  "currentFixedMonthly": number,
+  "providerGuess": string,
   "mix": {
-      "debitTurnover": number,
-      "creditTurnover": number,
-      "businessTurnover": number,
-      "internationalTurnover": number,
-      "amexTurnover": number,
-      "txCount": number         
+    "debitTurnover": number,
+    "creditTurnover": number,
+    "businessTurnover": number,
+    "internationalTurnover": number,
+    "amexTurnover": number,
+    "txCount": number
   }
 }
 
-**STRATEGY FOR EXTRACTION:**
+════════════════════════════
+PROVIDER AUTODETECTION
+════════════════════════════
+If branding text contains:
+- "Worldpay" → providerGuess = "Worldpay"
+- "EVO" → "EVO Payments"
+- "Barclaycard" → "Barclaycard"
+- "Elavon" → "Elavon"
+- "First Data", "FD" → "First Data"
+- "Clover" → "Clover"
+- "Zettle" → "Zettle"
+- "SumUp" → "SumUp"
+Else → match nearest competitor brand shown
 
-**PRIORITY 1: Explicit Monthly Data**
-- Look for "01/MM/YYYY - 31/MM/YYYY".
-- Use "Total Turnover" and "Total Charges" from this section.
-- **Worldpay Warning:** If "Last 12 Months" and "Current Month" are side-by-side, USE "CURRENT MONTH".
+════════════════════════════
+TURNOVER EXTRACTION (Priority)
+════════════════════════════
+Look in this order:
 
-**PRIORITY 2: Annual Estimation (Fallback)**
-- **IF AND ONLY IF** monthly totals are missing/zero:
-- Find "Total transactions last 12 months".
-- **CALCULATION:** Annual Turnover / 12.
-- **CALCULATION:** Annual Charges / 12.
-- Note this in "_thought_process".
+1️⃣ Explicit monthly total e.g. “Total Turnover”, “Total Net Value”, “Total Sales”
+2️⃣ Date-bounded period (01/MM — 30/MM)
+3️⃣ If only annual totals exist → fallback:
+   monthTurnover = annualTurnover / 12
+   Note this in _thought_process.
 
-**DEFAULTS (If specific breakdown is missing):**
-- **Mix:** Assume a standard consumer profile:
-  - Debit: 90%
-  - Credit: 10%
-  - Business/Intl/Amex: 0% (Only include if explicitly found).
-- **TxCount:** If missing, estimate: Turnover / 50 (Assumes £50 Average Transaction Value).
+ALWAYS use NET value (after refunds) where available.
 
-IMPORTANT: Return ONLY raw numbers.`;
+════════════════════════════
+MONTHLY FEES (KEY RULE)
+════════════════════════════
+Find monthly Merchant Service Charge (MSC) TOTAL:
 
-  const truncatedText = text.slice(0, 100000);
+Preferred phrases:
+- “Total MSC”
+- “Merchant Service Charge Total”
+- “Total Charges”
+- “Total Fees”
+- “Net Fees Due”
+- “Payable This Month”
+
+If missing:
+➜ SUM variable MSC + scheme fees + interchange + margin
+➜ Include Visa, MasterCard, Amex, Other schemes
+
+If still missing but daily MSC exists:
+➜ SUM “Total MSC” in daily sections
+
+currentFeesMonthly must NOT be zero if fee rows exist.
+
+════════════════════════════
+FIXED FEES SEPARATION
+════════════════════════════
+Fixed recurring fees → currentFixedMonthly
+Examples:
+- Terminal rental/hosting/service fee
+- PCI DSS fee
+- Accelerated settlement fee
+- Monthly Minimum Service Charge
+- Authorisation fee if recurring
+
+Do NOT include:
+- per-transaction MSC
+- scheme fees
+- margin
+- interchange
+
+════════════════════════════
+TRANSACTION COUNT
+════════════════════════════
+Priority:
+1️⃣ “Transactions: ###”
+2️⃣ Card category totals
+3️⃣ Daily totals  sum
+4️⃣ Fallback: turnover / 35
+
+════════════════════════════
+TURNOVER MIX
+════════════════════════════
+Debit = Visa Debit + MasterCard Debit + Maestro
+Credit = Visa Credit + MasterCard Credit
+Business = “Business”, “Commercial” labels only
+International = “non-EEA”, “World”, “Inter-Region”
+Amex = Specific Amex lines
+If category absent → assume 0
+
+Validate:
+(debit + credit + business + international + amex)
+≈ monthTurnover ± 8%
+
+If mismatch → adjust thousands formatting based on majority pattern.
+
+════════════════════════════
+NUMBER NORMALISATION
+════════════════════════════
+- Remove spaces as thousand separators
+- Convert decimal comma to point
+- £ optional
+Examples:
+"8 285,70" → 8285.70
+"7.559,49" → 7559.49
+
+════════════════════════════
+STRICT REQUIREMENTS
+════════════════════════════
+- JSON ONLY — no narrative outside JSON
+- All extracted fields must be numbers (default 0 if truly absent)
+- If using a fallback → note it inside _thought_process
+`;
+
+
+  const truncatedText = text.slice(0, 120000);
 
   const completion = await openai.chat.completions.create({
-    model: "gpt-4o", 
-    temperature: 0, 
+    model: "gpt-4o",
+    temperature: 0,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
@@ -113,33 +201,37 @@ IMPORTANT: Return ONLY raw numbers.`;
   let raw: any;
   try {
     raw = JSON.parse(content);
-  } catch (e) {
+  } catch {
     throw new Error("AI did not return valid JSON");
   }
 
   if (raw._thought_process) console.log("AI Reasoning:", raw._thought_process);
 
-  const n = (val: any) => {
-    if (typeof val === 'number') return val;
-    if (typeof val === 'string') {
-      const clean = val.replace(/[^0-9.-]/g, '');
+  const parseNumber = (val: any) => {
+    if (typeof val === "number") return val;
+    if (typeof val === "string") {
+      const clean = val
+        .replace(/[^0-9.,\- ]/g, "")
+        .replace(/ /g, "") // remove spacial thousands
+        .replace(/,(\d{1,2})$/, ".$1") // comma decimals → dot
+        .replace(/,/g, ""); // remove leftover commas
       return parseFloat(clean) || 0;
     }
     return 0;
   };
 
   return {
-    monthTurnover: n(raw.monthTurnover),
-    currentFeesMonthly: n(raw.currentFeesMonthly),
-    currentFixedMonthly: n(raw.currentFixedMonthly),
+    monthTurnover: parseNumber(raw.monthTurnover),
+    currentFeesMonthly: parseNumber(raw.currentFeesMonthly),
+    currentFixedMonthly: parseNumber(raw.currentFixedMonthly),
     providerGuess: raw.providerGuess || "Unknown",
     mix: {
-      debitTurnover: n(raw.mix?.debitTurnover),
-      creditTurnover: n(raw.mix?.creditTurnover),
-      businessTurnover: n(raw.mix?.businessTurnover),
-      internationalTurnover: n(raw.mix?.internationalTurnover),
-      amexTurnover: n(raw.mix?.amexTurnover),
-      txCount: n(raw.mix?.txCount) || 1,
+      debitTurnover: parseNumber(raw.mix?.debitTurnover),
+      creditTurnover: parseNumber(raw.mix?.creditTurnover),
+      businessTurnover: parseNumber(raw.mix?.businessTurnover),
+      internationalTurnover: parseNumber(raw.mix?.internationalTurnover),
+      amexTurnover: parseNumber(raw.mix?.amexTurnover),
+      txCount: parseNumber(raw.mix?.txCount) || 1
     }
   };
 }
